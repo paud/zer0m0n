@@ -44,8 +44,8 @@ PVOID MapNtdllIntoMemory()
 	HANDLE hSection;
 	OBJECT_ATTRIBUTES objAttr;
 	UNICODE_STRING pathFile;
-	SECTION_IMAGE_INFORMATION sii;
 	USHORT NumberOfSections;
+	SECTION_IMAGE_INFORMATION sii = {0};
 	PVOID pSection = NULL;
 	PIMAGE_DOS_HEADER pDosHeader = NULL;
 	PIMAGE_NT_HEADERS pNtHeader = NULL;
@@ -59,28 +59,28 @@ PVOID MapNtdllIntoMemory()
 	
 	if(NT_SUCCESS(status = ZwOpenSection(&hSection, SECTION_MAP_READ, &objAttr)))
 	{
-			ZwQuerySection(hSection, 1, &sii, sizeof(sii), 0);
-			Dbg("ntdll entry point : 0x%08x\n", sii.EntryPoint);
-			Ntdll_ImageBase = sii.EntryPoint;
-			pDosHeader = (PIMAGE_DOS_HEADER)Ntdll_ImageBase;
-			
-			#ifdef _M_X64
-			pNtHeader64 = (PIMAGE_NT_HEADERS64)((unsigned char*)Ntdll_ImageBase+pDosHeader->e_lfanew); 
-			pSectionHeader = (PIMAGE_SECTION_HEADER)((unsigned char*)pNtHeader64+sizeof(IMAGE_NT_HEADERS64)); 
-			dwExportRVA  = pNtHeader64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
-			dwExportSize = pNtHeader64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
-			#endif
-			
-			pNtHeader = (PIMAGE_NT_HEADERS)((unsigned char*)Ntdll_ImageBase+pDosHeader->e_lfanew); 
-			pSectionHeader = (PIMAGE_SECTION_HEADER)((unsigned char*)pNtHeader+sizeof(IMAGE_NT_HEADERS)); 
-			dwExportRVA  = pNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
-			dwExportSize = pNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
-						
-			Dbg("Export table address : 0x%08x\n", dwExportRVA);
-			Dbg("Export table size : 0x%08x\n", dwExportSize);
-			Dbg("EAT : 0x%08X\n", (PIMAGE_EXPORT_DIRECTORY)((unsigned char*)Ntdll_ImageBase+dwExportRVA));
-			pImageExportDirectory = (PIMAGE_EXPORT_DIRECTORY)((unsigned char*)Ntdll_ImageBase+dwExportRVA);
-			Dbg("number of exported functions : 0x%08x\n", pImageExportDirectory->NumberOfFunctions);
+		ZwQuerySection(hSection, 1, &sii, sizeof(sii), 0);
+		Dbg("ntdll entry point : %llx\n", sii.EntryPoint);
+		Ntdll_ImageBase = sii.EntryPoint;
+		pDosHeader = (PIMAGE_DOS_HEADER)Ntdll_ImageBase;
+		
+		#ifdef _M_X64
+		pNtHeader64 = (PIMAGE_NT_HEADERS64)((unsigned char*)Ntdll_ImageBase+pDosHeader->e_lfanew); 
+		pSectionHeader = (PIMAGE_SECTION_HEADER)((unsigned char*)pNtHeader64+sizeof(IMAGE_NT_HEADERS64)); 
+		dwExportRVA  = pNtHeader64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+		dwExportSize = pNtHeader64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+		#endif
+		
+		pNtHeader = (PIMAGE_NT_HEADERS)((unsigned char*)Ntdll_ImageBase+pDosHeader->e_lfanew); 
+		pSectionHeader = (PIMAGE_SECTION_HEADER)((unsigned char*)pNtHeader+sizeof(IMAGE_NT_HEADERS)); 
+		dwExportRVA  = pNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+		dwExportSize = pNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+					
+		Dbg("Export table address : 0x%08x\n", dwExportRVA);
+		Dbg("Export table size : 0x%08x\n", dwExportSize);
+		Dbg("EAT : 0x%08X\n", (PIMAGE_EXPORT_DIRECTORY)((unsigned char*)Ntdll_ImageBase+dwExportRVA));
+		pImageExportDirectory = (PIMAGE_EXPORT_DIRECTORY)((unsigned char*)Ntdll_ImageBase+dwExportRVA);
+		Dbg("number of exported functions : 0x%08x\n", pImageExportDirectory->NumberOfFunctions);
 	}
 	ZwClose(hSection);
 	return pImageExportDirectory;
@@ -140,7 +140,7 @@ PVOID SearchCodeCave(__in PUCHAR pStartSearchAddress)
 		if(MmIsAddressValid(pStartSearchAddress))
 		{
 			if(*(PULONG)pStartSearchAddress == 0x00000000 && *(PULONG)(pStartSearchAddress+4) == 0x00000000 && *(PULONG)(pStartSearchAddress+8) == 0x00000000)
-				return pStartSearchAddress-1;	
+				return pStartSearchAddress;	
 		}
 	}
 	return 0;
@@ -248,7 +248,7 @@ VOID HookSSDT()
 	Dbg("Kernel base addr : %llx\n", kernelBase);
 	pStartSearchAddress = GetEndOfTextSection(kernelBase);
 	Dbg("pStartSearchAddress : %llx\n", pStartSearchAddress);
-	offsetSyscall = 21;
+	offsetSyscall = 4;
 #endif
 
 	pImageExportDirectory = MapNtdllIntoMemory();
@@ -300,7 +300,7 @@ VOID Install_Hook(__in ULONG syscall,
 				  __in PULONG KiServiceTable)
 {	
 	NTSTATUS Status = STATUS_UNSUCCESSFUL;
-	UCHAR jmp_to_newFunction[] = "\x48\xB8\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00\xFF\xE0"; //mov rax, xxx ; jmp rax
+	UCHAR jmp_to_newFunction[] = "\x48\xB8\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xE0"; //mov rax, xxx ; jmp rax
 	KIRQL Irql;
 	ULONG SsdtEntry;
 	PVOID trampoline = NULL;
@@ -320,7 +320,7 @@ VOID Install_Hook(__in ULONG syscall,
 		Dbg("OS : 64 bits !\n");
 		*origFunc = (PVOID)GetNTAddressFromSSDT(KiServiceTable, syscall); 
 		Dbg("Orig_Func : %llx\n", *origFunc);
-
+		Dbg("Hooked_Func : %llx\n", hookedFunc);
 		// mov rax, @NewFunc; jmp rax
 		*(PULONGLONG)(jmp_to_newFunction+2) = (ULONGLONG)hookedFunc;
 		trampoline = SearchCodeCave(searchAddr);
