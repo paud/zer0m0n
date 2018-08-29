@@ -145,7 +145,7 @@ NTSTATUS Ioctl_DeviceControl(__in PDEVICE_OBJECT pDeviceObject,
 				Dbg("IOCTL_CUCKOO_PATH : Buffer too large\n");
 				return STATUS_BUFFER_TOO_SMALL;
 			}
-			Dbg("cuckoo path : %ws\n", cuckooPath);
+			Dbg("cuckoo path : %ws\n", cuckooPath);  //主要用于dump转储
 			break;
 
 		default:
