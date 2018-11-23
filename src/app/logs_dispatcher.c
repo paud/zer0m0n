@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////
 //
-//	zer0m0n 
+//	zer0m0n
 //
 //  Copyright 2016 Nicolas Correia, Adrien Chevalier
 //
@@ -20,13 +20,13 @@
 //  along with Zer0m0n.  If not, see <http://www.gnu.org/licenses/>.//
 //
 //	File :		main.c
-//	Abstract :	Main function for zer0m0n 
+//	Abstract :	Main function for zer0m0n
 //	Revision : 	v1.1
 //	Author :	Adrien Chevalier & Nicolas Correia
 //	Email :		adrien.chevalier@conix.fr nicolas.correia@conix.fr
-//	Date :		2013-12-26	  
-//	Notes : 	
-//		
+//	Date :		2013-12-26
+//	Notes :
+//
 /////////////////////////////////////////////////////////////////////////////
 
 #include "logs_dispatcher.h"
@@ -38,11 +38,10 @@
 #include "log.h"
 #include "hook-info.h"
 
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //      Description : initializes the filter communication port and creates few threads
 //
-//      Parameters : 
+//      Parameters :
 //      Return value :
 //      Process :
 //              initializes the critical section object, the file linked list and the filter communication port
@@ -54,47 +53,56 @@ int main(void)
 	HANDLE hThreads[NUMBER_OF_THREADS];
 	int i;
 
+	/*i=LoadLibrary("maindll.dll");
+	if(i!=0){
+		printf("[+] ok\n");
+	}
+	printf("[+] start!!!\n");
+	*/
+
 	RtlInitUnicodeString = (RTLINITUNICODESTRING)GetProcAddress(LoadLibrary("ntdll.dll"), "RtlInitUnicodeString");
-	if(RtlInitUnicodeString == NULL)
+	if (RtlInitUnicodeString == NULL)
 		return -1;
 
 	InitializeCriticalSection(&l_mutex);
 
 	FilterConnectCommunicationPort(L"\\FilterPort", 0, NULL, 0, NULL, &context.hPort);
-	if(context.hPort == INVALID_HANDLE_VALUE)
+	if (context.hPort == INVALID_HANDLE_VALUE)
 	{
 		fprintf(stderr, "[-] Cannot connect to filter communication port\n");
-		exit(EXIT_FAILURE);
+		//exit(EXIT_FAILURE);
 	}
 	printf("[+] Connected to filter communication port\n");
 
 	context.completion = CreateIoCompletionPort(context.hPort, NULL, 0, NUMBER_OF_THREADS);
-	if(context.completion == NULL)
+	if (context.completion == NULL)
 	{
 		fprintf(stderr, "[-] Error creating completion port : %d\n", GetLastError());
-		exit(EXIT_FAILURE);
+		//exit(EXIT_FAILURE);
 	}
 
 	// creates NUMBER_OF_THREADS threads
-	for(i=0; i<NUMBER_OF_THREADS; i++)
+	for (i = 0; i < NUMBER_OF_THREADS; i++)
 	{
+		context.pmsg = malloc(sizeof(KERNEL_MESSAGE));
 		hThreads[i] = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)parse_logs, &context, 0, NULL);
-		if(hThreads[i] == NULL)
+		if (hThreads[i] == NULL)
 		{
 			fprintf(stderr, "[-] Error creating thread\n");
 			exit(EXIT_FAILURE);
-		}		
+		}
 	}
-	
-	if(WaitForMultipleObjects(NUMBER_OF_THREADS, hThreads, TRUE, INFINITE) == WAIT_FAILED)
+
+	//sleep(1000);
+	if (WaitForMultipleObjects(NUMBER_OF_THREADS, hThreads, TRUE, INFINITE) == WAIT_FAILED)
 	{
 		fprintf(stderr, "[-] Failed to wait for threads : %x\n", GetLastError());
 		exit(EXIT_FAILURE);
 	}
 
-	for(i=0; i<NUMBER_OF_THREADS; i++)
+	for (i = 0; i < NUMBER_OF_THREADS; i++)
 	{
-		if(!CloseHandle(hThreads[i]))
+		if (!CloseHandle(hThreads[i]))
 		{
 			fprintf(stderr, "[-] Failed to close handle\n");
 			exit(EXIT_FAILURE);
@@ -102,10 +110,35 @@ int main(void)
 	}
 }
 
+BOOL WINAPI DllMain(HINSTANCE hModule, DWORD dwReason, LPVOID lpvReserved)
+{
+	switch (dwReason)
+	{
+	// 如果是进程加载本dll
+	case DLL_PROCESS_ATTACH:
+		printf("process attach\n");
+		//main();//在这里创建线程会直接卡死，标准的做法还是建议遵循MS的规则，不要在DLL入口函数中做线程相关的创建和释放操作。
+		break;
+	// 如果是进程卸载本dll
+	case DLL_PROCESS_DETACH:
+		printf("thread attach\n");
+		break;
+	// 如果是线程加载本dll
+	case DLL_THREAD_ATTACH:
+		printf("thread attach\n");
+		break;
+	// 如果是线程卸载本dll
+	case DLL_THREAD_DETACH:
+		printf("process attach\n");
+		break;
+	}
+	// 如果返回FALSE，则说明加载失败，不会继续被加载，也不可使用
+	return TRUE;
+}
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //      Description : retrieve logs from kernel, parse them and send them to the cuckoo machine host
 //
-//      Parameters : 
+//      Parameters :
 //      Return value :
 //      Process :
 //              Gets the main cuckoo parameters.
@@ -116,6 +149,7 @@ int main(void)
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 VOID parse_logs(PTHREAD_CONTEXT p)
 {
+	//return;
 	config_t cfg;
 	PKERNEL_MESSAGE msg = NULL;
 	LPOVERLAPPED pOvlp = NULL;
@@ -128,62 +162,73 @@ VOID parse_logs(PTHREAD_CONTEXT p)
 	BOOL result;
 	HRESULT hr;
 
-	context = *p;
+ 	context = *p;
 
-	msg = malloc(sizeof(KERNEL_MESSAGE));
-	if(msg == NULL)
+	//i=sizeof(KERNEL_MESSAGE);
+	//printf("[-] malloc %d\n",i);
+	msg = p->pmsg; //malloc(i);//线程内malloc卡死，因为大概malloc非线程安全
+	if (msg == NULL)
+	{
+		printf("[-] malloc\n");
 		exit(EXIT_FAILURE);
+	}
 
 	log.sig_func = 0;
 	log.procname = NULL;
 	log.fmt = NULL;
 	log.arguments = NULL;
 
-	while(TRUE)
+	while (TRUE)
 	{
-		
+
 		memset(&msg->Ovlp, 0, sizeof(OVERLAPPED));
-		hr = FilterGetMessage(context.hPort,&msg->MessageHeader, sizeof(KERNEL_MESSAGE), &msg->Ovlp);
-		if(hr != HRESULT_FROM_WIN32(ERROR_IO_PENDING))
+		hr = FilterGetMessage(context.hPort, &msg->MessageHeader, sizeof(KERNEL_MESSAGE), &msg->Ovlp);
+		if (hr != HRESULT_FROM_WIN32(ERROR_IO_PENDING))
+		{
+			printf("[-] hr\n");
 			break;
+		}
 		result = GetQueuedCompletionStatus(context.completion, &outsize, &key, &pOvlp, INFINITE);
-		if(!result) 
+		if (!result)
 		{
 			hr = HRESULT_FROM_WIN32(GetLastError());
-			if((hr == E_HANDLE) || (hr == HRESULT_FROM_WIN32(ERROR_ABANDONED_WAIT_0)))
+			if ((hr == E_HANDLE) || (hr == HRESULT_FROM_WIN32(ERROR_ABANDONED_WAIT_0)))
 				hr = S_OK;
 			break;
 		}
 
 		msg = CONTAINING_RECORD(pOvlp, KERNEL_MESSAGE, Ovlp);
-		if(!msg)
+		if (!msg)
+		{
+			printf("[-] msg\n");
 			break;
-		
+		}
+		printf("[+] msg\n");
 		// 0x0A : message delimiter
-		i=0;
-		while(msg->message[i] != 0x0A)
+		i = 0;
+		while (msg->message[i] != 0x0A)
 			i++;
 		msg->message[i] = 0x0;
-	
+
 		// initialize pointer to the beginning of the log
 		ptr_msg = 0;
-		
+
 		// get PID
 		size = getsize(0, msg->message, 0x2C);
 		log.pid = retrieve_int(msg->message, size);
-		ptr_msg = size+1;
-		if(isProcessMonitoredByPid(log.pid) == -1)
+		ptr_msg = size + 1;
+		if (isProcessMonitoredByPid(log.pid) == -1)
 		{
 			EnterCriticalSection(&l_mutex);
-			if(isProcessMonitoredByPid(log.pid) == -1)
+			if (isProcessMonitoredByPid(log.pid) == -1)
 			{
 				// notifies analyzer.py
-				if((log.pid != 4) && init)
+				if ((log.pid != 4) && init)
 				{
 					pipe("KPROCESS:%d", log.pid);
 				}
 
-				if(!init)
+				if (!init)
 				{
 					config_read(&cfg, log.pid);
 					pipe_init(cfg.pipe_name);
@@ -194,24 +239,24 @@ VOID parse_logs(PTHREAD_CONTEXT p)
 
 				// get process name
 				size = getsize(ptr_msg, msg->message, 0x2C);
-				log.procname = malloc(size+1);
+				log.procname = malloc(size + 1);
 				log.procname[size] = 0x0;
-				memcpy(log.procname, msg->message+ptr_msg, size);
-				ptr_msg += size+1;
+				memcpy(log.procname, msg->message + ptr_msg, size);
+				ptr_msg += size + 1;
 				printf("procname : %s\n", log.procname);
 				printf("pipename : %s\n", cfg.logpipe);
 				log_init(cfg.logpipe, log.pid, log.procname);
 
-				if(startMonitoringProcess(log.pid) == -1)
-					printf("[!] Could not add %d\n",log.pid);
-				
-				printf("[+] New PID %d\n",log.pid);	
+				if (startMonitoringProcess(log.pid) == -1)
+					printf("[!] Could not add %d\n", log.pid);
+
+				printf("[+] New PID %d\n", log.pid);
 			}
 			else
 			{
 				// skip process name
 				size = getsize(ptr_msg, msg->message, 0x2C);
-				ptr_msg += size+1;
+				ptr_msg += size + 1;
 			}
 			LeaveCriticalSection(&l_mutex);
 		}
@@ -219,129 +264,127 @@ VOID parse_logs(PTHREAD_CONTEXT p)
 		{
 			// skip process name
 			size = getsize(ptr_msg, msg->message, 0x2C);
-			ptr_msg += size+1;
+			ptr_msg += size + 1;
 		}
 
 		// retrieve function signature
 		size = getsize(ptr_msg, msg->message, 0x2C);
-		log.sig_func = retrieve_int(msg->message+ptr_msg, size);
+		log.sig_func = retrieve_int(msg->message + ptr_msg, size);
 
 		// retrieve success status
-		ptr_msg += size+1;
-		log.success = retrieve_int(msg->message+ptr_msg, 1);
+		ptr_msg += size + 1;
+		log.success = retrieve_int(msg->message + ptr_msg, 1);
 
 		// retrieve return value
 		ptr_msg += 2;
 		size = getsize(ptr_msg, msg->message, 0x2C);
-		log.ret = retrieve_int(msg->message+ptr_msg, size);
+		log.ret = retrieve_int(msg->message + ptr_msg, size);
 
-		// retrieve format parameters 
-		ptr_msg += size+1;
+		// retrieve format parameters
+		ptr_msg += size + 1;
 		size = getsize(ptr_msg, msg->message, 0x2C);
-		log.fmt = malloc(size+1);
+		log.fmt = malloc(size + 1);
 		log.fmt[size] = 0x0;
-		memcpy(log.fmt, msg->message+ptr_msg, size);
-
+		memcpy(log.fmt, msg->message + ptr_msg, size);
 
 		// retrieve arguments
 		log.nb_arguments = strlen(log.fmt);
-		if(log.nb_arguments)
-			log.arguments = (PARAMETERS*)malloc(log.nb_arguments * sizeof(PARAMETERS));
-		
+		if (log.nb_arguments)
+			log.arguments = (PARAMETERS *)malloc(log.nb_arguments * sizeof(PARAMETERS));
 
 		// for the moment, we only have 10 arguments/values maximum to log
-		switch(log.nb_arguments)
+		switch (log.nb_arguments)
 		{
-			case 0:
-				log_api(log.sig_func,log.success,log.ret, 0, NULL,log.fmt);
-			break;
-			
-			case 1:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value);
-			break;
-			
-			case 2:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				if((log.sig_func == SIG_ntdll_NtDeleteFile) || (log.sig_func == SIG_kernel32_DeleteFileW) || (log.sig_func == SIG_ntdll_NtClose)) // don't log the last argument which is the filepath to dump !
-					log_api(log.sig_func,log.success,log.ret,0,NULL,"s",log.arguments[0].value);
-				else
-					log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value);
-			break;
-			
-			case 3:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value);
-			
+		case 0:
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt);
 			break;
 
-			case 4:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value,log.arguments[3].value);
+		case 1:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value);
 			break;
 
-			case 5:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value,log.arguments[3].value,log.arguments[4].value);
+		case 2:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			if ((log.sig_func == SIG_ntdll_NtDeleteFile) || (log.sig_func == SIG_kernel32_DeleteFileW) || (log.sig_func == SIG_ntdll_NtClose)) // don't log the last argument which is the filepath to dump !
+				log_api(log.sig_func, log.success, log.ret, 0, NULL, "s", log.arguments[0].value);
+			else
+				log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value);
 			break;
 
-			case 6:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value,log.arguments[3].value,log.arguments[4].value,log.arguments[5].value);
+		case 3:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value);
+
 			break;
 
-			case 7:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value,log.arguments[3].value,log.arguments[4].value,log.arguments[5].value,log.arguments[6].value);
+		case 4:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value, log.arguments[3].value);
 			break;
 
-			case 8:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value,log.arguments[3].value,log.arguments[4].value,log.arguments[5].value,log.arguments[6].value,log.arguments[7].value);
+		case 5:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value, log.arguments[3].value, log.arguments[4].value);
 			break;
 
-			case 9:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value,log.arguments[3].value,log.arguments[4].value,log.arguments[5].value,log.arguments[6].value,log.arguments[7].value,log.arguments[8].value);
+		case 6:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value, log.arguments[3].value, log.arguments[4].value, log.arguments[5].value);
 			break;
 
-			case 10:
-				retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
-				log_api(log.sig_func,log.success,log.ret,0,NULL,log.fmt,log.arguments[0].value,log.arguments[1].value,log.arguments[2].value,log.arguments[3].value,log.arguments[4].value,log.arguments[5].value,log.arguments[6].value,log.arguments[7].value,log.arguments[8].value,log.arguments[9].value);
+		case 7:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value, log.arguments[3].value, log.arguments[4].value, log.arguments[5].value, log.arguments[6].value);
 			break;
 
-			default:
-				break;
+		case 8:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value, log.arguments[3].value, log.arguments[4].value, log.arguments[5].value, log.arguments[6].value, log.arguments[7].value);
+			break;
+
+		case 9:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value, log.arguments[3].value, log.arguments[4].value, log.arguments[5].value, log.arguments[6].value, log.arguments[7].value, log.arguments[8].value);
+			break;
+
+		case 10:
+			retrieve_parameters(log.nb_arguments, msg->message, ptr_msg, size, log.arguments);
+			log_api(log.sig_func, log.success, log.ret, 0, NULL, log.fmt, log.arguments[0].value, log.arguments[1].value, log.arguments[2].value, log.arguments[3].value, log.arguments[4].value, log.arguments[5].value, log.arguments[6].value, log.arguments[7].value, log.arguments[8].value, log.arguments[9].value);
+			break;
+
+		default:
+			break;
 		}
 
 		// if NtDeleteFile() is called, notifies cuckoo that a file has to be dumped
-		if(((log.sig_func == SIG_ntdll_NtDeleteFile) || (log.sig_func == SIG_kernel32_DeleteFileW) || (log.sig_func == SIG_ntdll_NtClose)) && !log.ret)
+		if (((log.sig_func == SIG_ntdll_NtDeleteFile) || (log.sig_func == SIG_kernel32_DeleteFileW) || (log.sig_func == SIG_ntdll_NtClose)) && !log.ret)
 		{
-			pw_pathfile = (PWCHAR)malloc(1024*sizeof(WCHAR));
-			mbstowcs(pw_pathfile, log.arguments[1].value, strlen(log.arguments[1].value)+1);
+			pw_pathfile = (PWCHAR)malloc(1024 * sizeof(WCHAR));
+			mbstowcs(pw_pathfile, log.arguments[1].value, strlen(log.arguments[1].value) + 1);
 			pipe("FILE_DEL:%Z", pw_pathfile);
 			free(pw_pathfile);
 		}
-				
+
 		// notifies analyzer.py that a process has terminated
 		/*
 		if((log.sig_func == SIG_ntdll_NtTerminateProcess) && !log.ret)
 			pipe("KTERMINATE:%d", atoi(log.arguments[1].value));
 		*/
-		if(log.procname)
+		if (log.procname)
 		{
 			free(log.procname);
 			log.procname = NULL;
 		}
-		if(log.fmt)
+		if (log.fmt)
 		{
 			free(log.fmt);
 			log.fmt = NULL;
 		}
 
-		if(log.arguments)
+		if (log.arguments)
 		{
-			for(i=0; i<log.nb_arguments; i++)
+			for (i = 0; i < log.nb_arguments; i++)
 			{
 				free(log.arguments[i].arg);
 				free(log.arguments[i].value);
@@ -355,5 +398,3 @@ VOID parse_logs(PTHREAD_CONTEXT p)
 	free(msg);
 	cleanMonitoredProcessList();
 }
-
-

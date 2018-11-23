@@ -33,6 +33,7 @@
 #define __LOGS_DISPATCHER_H
 
 #include <windows.h>
+#include <fltUserStructures.h>
 #include <fltuser.h>
 #include "ntapi.h"
 #include <stdio.h>
@@ -41,6 +42,33 @@
 
 
 #define NUMBER_OF_THREADS 1
+
+typedef struct _FILTER_MESSAGE_HEADER {
+
+    //
+    //  OUT
+    //
+    //  Total buffer length in bytes, including the FILTER_REPLY_HEADER, of
+    //  the expected reply.  If no reply is expected, 0 is returned.
+    //
+
+    ULONG ReplyLength;
+
+    //
+    //  OUT
+    //
+    //  Unique Id for this message.  This will be set when the kernel message
+    //  satifies this FilterGetMessage or FilterInstanceGetMessage request.
+    //  If replying to this message, this is the MessageId that should be used.
+    //
+
+    ULONGLONG MessageId;
+
+    //
+    //  General filter-specific buffer data follows...
+    //
+
+} FILTER_MESSAGE_HEADER, *PFILTER_MESSAGE_HEADER;
 
 typedef struct _KERNEL_MESSAGE
 {
@@ -53,6 +81,7 @@ typedef struct _THREAD_CONTEXT
 {
 	HANDLE hPort;
 	HANDLE completion;
+	PKERNEL_MESSAGE pmsg;
 } THREAD_CONTEXT, *PTHREAD_CONTEXT;
 
 typedef VOID(WINAPI *RTLINITUNICODESTRING)(PUNICODE_STRING,PWCHAR);
